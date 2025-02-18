@@ -282,17 +282,42 @@ class EnhancedValidator:
     def _validate_inventory(self, order: Order, inventory: Dict[str, int], result: ValidationResult):
         """Validate inventory levels."""
         for item in order.items:
-            if item.name in inventory:
-                if inventory[item.name] < item.quantity:
-                    result.add_issue(
-                        f"Insufficient inventory for {item.name}. "
-                        f"Only {inventory[item.name]} available."
-                    )
-                    result.add_user_query(
-                        "quantity_adjustment",
-                        item.name,
-                        [(str(inventory[item.name]), 1.0)]
-                    )
+            # Find the item in the correct category
+            for category, items in inventory.items():
+                if item.name in items:
+                    available_quantity = items[item.name]
+                    if available_quantity < item.quantity:
+                        result.add_issue(
+                            f"Insufficient inventory for {item.name}. "
+                            f"Only {available_quantity} available."
+                        )
+                        if available_quantity > 0:
+                            # Suggest quantity adjustment if some stock is available
+                            result.add_user_query(
+                                "quantity_adjustment",
+                                item.name,
+                                [(str(available_quantity), 1.0)]
+                            )
+                        else:
+                            # If no stock, suggest removal or replacement
+                            result.add_user_query(
+                                "item_removal",
+                                item.name,
+                                []
+                            )
+                            # Find similar items in the same category that are in stock
+                            alternatives = [
+                                (name, 1.0) for name, qty in items.items()
+                                if qty > 0 and name != item.name
+                            ][:3]  # Get top 3 alternatives
+                            if alternatives:
+                                result.add_user_query(
+                                    "item_replacement",
+                                    item.name,
+                                    alternatives
+                                )
+                        result.is_valid = False
+                    break
 
 # Initialize validator at module level
 enhanced_validator = EnhancedValidator(menu_items=MENU_ITEMS) 

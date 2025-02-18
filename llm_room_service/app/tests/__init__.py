@@ -1,3 +1,4 @@
 """
-Test package for Room Service application.
+Test suite initialization.
+Contains all test cases and test utilities for the application.
 """ 
