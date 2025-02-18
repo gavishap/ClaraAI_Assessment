@@ -36,19 +36,19 @@ INTENT_MODEL_CONFIG = {
         },
         "intent_patterns": {
             "new_order": [
-                "describes what food or drinks someone would like to receive right now",
-                "mentions quantities and items to be delivered for the first time",
-                "lists specific food or beverage items desired for a new order",
-                "contains a fresh request for food or drink items",
-                "specifies what items should be brought as a new order",
-                "explicitly states food items they want to order for the first time",
-                "indicates a desire to have new menu items delivered",
-                "provides details about food items they want to receive now",
-                "makes a fresh request for specific menu items never ordered",
-                "clearly states which new food or drinks to bring"
+                "mentions any food or drink item",
+                "contains the name of a dish or beverage",
+                "specifies food items or ingredients",
+                "includes any menu item or food description",
+                "refers to a type of food or drink",
+                "describes food preferences or choices",
+                "indicates desired food or beverage items",
+                "mentions modifications to food items",
+                "lists any food or drink items",
+                "expresses food or drink preferences"
             ],
             "general_inquiry": [
-                "asks for information without requesting specific items",
+                "asks for information without mentioning specific items",
                 "seeks to understand menu options or prices",
                 "contains questions about food availability",
                 "requests details about menu items",
@@ -69,24 +69,19 @@ INTENT_MODEL_CONFIG = {
                 "requests changes to food already ordered",
                 "asks if ordered items are ready or complete",
                 "wants to know when an order will be ready",
-                "seeks to terminate or cancel current orders",
-                "inquires about the status of ordered food",
-                "checks on previously ordered items",
-                "asks about the progress of an existing order",
-                "wants to know if ordered items are prepared",
-                "questions the readiness of a placed order"
+                "seeks to terminate or cancel current orders"
             ],
             "unknown": [
-                "contains no specific food or drink items",
-                "lacks clear details about what is wanted",
-                "uses vague or non-specific language",
-                "needs more specifics to understand",
-                "is too ambiguous to determine intent",
-                "makes requests without clear food items",
-                "uses general terms without specific details",
-                "provides insufficient information to act upon",
-                "requires clarification about intended items",
-                "expresses preferences without specific requests"
+                "contains no food or menu related terms",
+                "uses only vague words without food mentions",
+                "has no reference to food or drinks",
+                "lacks any menu or food related terms",
+                "contains only general words without food context",
+                "makes no mention of food or beverages",
+                "uses ambiguous terms without food references",
+                "provides no food or menu related information",
+                "contains no recognizable food items",
+                "expresses only vague preferences without food mentions"
             ]
         }
     },

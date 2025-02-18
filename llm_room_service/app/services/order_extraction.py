@@ -8,6 +8,7 @@ from loguru import logger
 from ..models import Order, OrderItem, OrderIntent, OrderSchema, OrderItemSchema
 from ..config import OPENAI_CONFIG, MENU_ITEMS
 from ..utils.fuzzy_matching import find_best_match
+from .menu_embeddings import menu_embedding_service
 
 class OrderExtractor:
     def __init__(self):
@@ -16,30 +17,26 @@ class OrderExtractor:
             self.client = OpenAI(api_key=OPENAI_CONFIG["api_key"])
             logger.info("Initialized OpenAI client for order extraction")
             
-            # Create menu context for the model
-            self.menu_context = self._create_menu_context()
             # Store last raw output for validation
             self.last_raw_output = None
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")
             raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
 
-    def _create_menu_context(self) -> str:
-        """Create a formatted menu context for the model."""
-        menu_text = "Available Menu Items:\n\n"
-        
-        for category, items in MENU_ITEMS["categories"].items():
-            menu_text += f"{category}:\n"
-            for item_name, details in items.items():
-                mods = ", ".join(details["available_modifications"])
-                menu_text += f"- {item_name} (Modifications: {mods})\n"
-            menu_text += "\n"
-        
-        return menu_text
-
     def extract_order(self, text: str, menu_items: Dict) -> Optional[Order]:
         """Extract structured order information from text using OpenAI."""
         try:
+            # First, find relevant menu items using embeddings
+            relevant_items = menu_embedding_service.find_similar_items(text, threshold=0.6)
+            
+            # Create a focused context with only the relevant items
+            menu_context = "Relevant Menu Items:\n\n"
+            for item_name, score, data in relevant_items:
+                category = data["category"]
+                details = data["details"]
+                mods = ", ".join(details["available_modifications"])
+                menu_context += f"- {item_name} ({category})\n  Modifications: {mods}\n"
+
             # Call OpenAI with structured output
             completion = self.client.chat.completions.create(
                 model=OPENAI_CONFIG["model"],
@@ -49,7 +46,7 @@ class OrderExtractor:
                         "content": f"""You are an expert order extraction system for a room service application.
 Your task is to extract orders with perfect accuracy, following a step-by-step process.
 
-{self.menu_context}
+{menu_context}
 
 You must respond with a JSON object that follows this exact schema:
 {{
@@ -65,63 +62,18 @@ You must respond with a JSON object that follows this exact schema:
 
 Follow these steps in your reasoning:
 1. First, identify all menu items mentioned in the order
-2. For each item, determine its exact name from the menu
+2. For each item:
+   - Find the closest matching menu item
+   - If the match isn't exact, use the generic category (e.g., "salad" instead of assuming "Caesar Salad")
+   - If you're not sure about a specific item, use the generic term and let validation handle it
 3. Extract any quantities specified (default to 1)
-4. Match any modifications to the available modifications list
+4. Include ALL modifications mentioned by the user, even if they're not in the available list
 5. Look for a room number (set to null if none found)
-
-Here are some examples:
-
-Input: "I'd like a club sandwich with extra bacon and a side of french fries"
-Reasoning:
-1. Found items: "club sandwich" and "french fries"
-2. Menu matches: "Club Sandwich" and "French Fries"
-3. No quantities specified, using default of 1
-4. Modifications: "extra bacon" for Club Sandwich, none for French Fries
-5. No room number mentioned
-Output: {{
-    "room_number": null,
-    "items": [
-        {{
-            "name": "Club Sandwich",
-            "quantity": 1,
-            "modifications": ["extra bacon"]
-        }},
-        {{
-            "name": "French Fries",
-            "quantity": 1,
-            "modifications": []
-        }}
-    ]
-}}
-
-Input: "Can I get two waters and a caesar salad with chicken to room 405"
-Reasoning:
-1. Found items: "waters" and "caesar salad"
-2. Menu matches: "Still Water" and "Caesar Salad"
-3. Quantities: 2 waters, 1 salad
-4. Modifications: "add chicken" for Caesar Salad
-5. Room number: 405
-Output: {{
-    "room_number": 405,
-    "items": [
-        {{
-            "name": "Still Water",
-            "quantity": 2,
-            "modifications": []
-        }},
-        {{
-            "name": "Caesar Salad",
-            "quantity": 1,
-            "modifications": ["add chicken"]
-        }}
-    ]
-}}
 
 Remember:
 1. NEVER omit any items mentioned in the order
-2. ALWAYS match item names EXACTLY as they appear in the menu
-3. ONLY use modifications that are listed as available
+2. DO NOT assume specific items when user gives generic terms (e.g., "salad" should stay as "salad")
+3. Include ALL modifications mentioned by the user, even if not in the available list
 4. Include room number if mentioned, otherwise null
 5. Default quantity to 1 if not specified"""
                     },
@@ -138,7 +90,13 @@ Remember:
             # Get the response and parse it
             response_text = completion.choices[0].message.content
             self.last_raw_output = response_text  # Store the raw output
-            order_data = OrderSchema.model_validate_json(response_text)
+            
+            try:
+                order_data = OrderSchema.model_validate_json(response_text)
+            except ValidationError as ve:
+                logger.error(f"Initial validation error: {ve}")
+                # Try to recover with a reprompt
+                return self._handle_extraction_failure(text, str(ve))
 
             # Save outputs to file for debugging
             with open("order_extraction_output.txt", "a", encoding='utf-8') as f:
@@ -146,38 +104,25 @@ Remember:
                 f.write("NEW EXTRACTION\n")
                 f.write("="*50 + "\n")
                 f.write(f"Input Text:\n{text}\n\n")
+                f.write(f"Relevant Items:\n{menu_context}\n\n")
                 f.write(f"Raw Response:\n{response_text}\n\n")
                 f.write(f"Parsed Order:\n{order_data.model_dump_json(indent=2)}\n")
                 f.write("="*50 + "\n\n")
 
-            # Validate and clean up the order data
-            items = []
-            for item_data in order_data.items:
-                # Search through all categories
-                for category, category_items in MENU_ITEMS["categories"].items():
-                    # Find best matching menu item in this category
-                    menu_item, score = find_best_match(item_data.name, list(category_items.keys()))
-                    if menu_item and score > 0.95:  # Increased threshold for stricter matching
-                        # Validate modifications
-                        valid_mods = []
-                        if category_items[menu_item]["modifications_allowed"]:
-                            available_mods = category_items[menu_item]["available_modifications"]
-                            for mod in item_data.modifications:
-                                mod_match, mod_score = find_best_match(mod, available_mods)
-                                if mod_match and mod_score > 0.95:  # Increased threshold
-                                    valid_mods.append(mod_match)
-
-                        items.append(OrderItem(
-                            name=menu_item,
-                            quantity=item_data.quantity,
-                            modifications=valid_mods,
-                            category=category
-                        ))
-                        break
+            # Create order items directly from the extracted data
+            items = [
+                OrderItem(
+                    name=item.name,
+                    quantity=item.quantity,
+                    modifications=item.modifications,
+                    category="Main"  # Let validation handle the proper categorization
+                )
+                for item in order_data.items
+            ]
 
             if not items:
-                logger.error("No valid items found in the order")
-                return None
+                logger.error("No items found in the order")
+                return self._handle_extraction_failure(text, "Failed to extract any items from the order")
 
             return Order(
                 items=items,
@@ -185,11 +130,74 @@ Remember:
                 room_number=order_data.room_number
             )
 
-        except ValidationError as ve:
-            logger.error(f"Validation Error in order extraction: {str(ve)}")
-            return None
         except Exception as e:
             logger.error(f"Error in order extraction: {str(e)}")
+            return self._handle_extraction_failure(text, str(e))
+
+    def _handle_extraction_failure(self, text: str, error_msg: str) -> Optional[Order]:
+        """Handle extraction failures by reprompting with more explicit instructions."""
+        try:
+            logger.info(f"Attempting to recover from extraction failure: {error_msg}")
+            
+            # Create a more explicit prompt that includes the error context
+            completion = self.client.chat.completions.create(
+                model=OPENAI_CONFIG["model"],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"""You are an expert order extraction system. 
+The previous attempt to extract an order failed with this error: {error_msg}
+
+Please try again with these specific instructions:
+1. Extract EXACTLY what the user ordered, using their exact words
+2. Do not try to match or correct item names
+3. Include ALL modifications exactly as mentioned
+4. If unsure about a specific item, use the exact term the user used
+5. Focus on accuracy over completeness
+
+You must respond with a JSON object that follows this exact schema:
+{{
+    "room_number": number or null,
+    "items": [
+        {{
+            "name": "exact item name as mentioned by user",
+            "quantity": number (default to 1 if not specified),
+            "modifications": ["modification1", "modification2"] (empty array if none)
+        }}
+    ]
+}}"""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Extract the order from: {text}"
+                    }
+                ],
+                response_format={ "type": "json_object" },
+                temperature=0.0
+            )
+            
+            response_text = completion.choices[0].message.content
+            order_data = OrderSchema.model_validate_json(response_text)
+            
+            # Create order items directly from the extracted data
+            items = [
+                OrderItem(
+                    name=item.name,
+                    quantity=item.quantity,
+                    modifications=item.modifications,
+                    category="Main"  # Let validation handle the proper categorization
+                )
+                for item in order_data.items
+            ]
+            
+            return Order(
+                items=items,
+                intent=OrderIntent.NEW_ORDER,
+                room_number=order_data.room_number
+            )
+            
+        except Exception as e:
+            logger.error(f"Recovery attempt failed: {str(e)}")
             return None
 
 # Initialize extractor at module level

@@ -1,66 +1,60 @@
-from typing import Dict, List, Tuple, Optional, Set
-import json
+from typing import Dict, List, Tuple, Optional
 from loguru import logger
-from openai import OpenAI
-import numpy as np
-from functools import lru_cache
 from datetime import datetime
+from pydantic import BaseModel
 
 from ..models import Order, OrderItem
-from ..config import OPENAI_CONFIG, MENU_ITEMS
-from ..utils.fuzzy_matching import find_best_match, calculate_similarity
-from .context_manager import context_manager
+from ..config import MENU_ITEMS
+from ..utils.fuzzy_matching import find_best_match
+from .menu_embeddings import menu_embedding_service
+from .langchain_context import langchain_context
 
-class ValidationResult:
-    def __init__(self):
-        self.is_valid = True
-        self.issues: List[str] = []
-        self.suggestions: Dict[str, List[str]] = {}
-        self.requires_user_input = False
-        self.user_queries: List[Dict] = []
-        self.validation_steps: List[Dict] = []  # Track each validation step
+class ValidationStep(BaseModel):
+    type: str
+    details: Dict
+    timestamp: str
+
+class ValidationResult(BaseModel):
+    """Validation result with all necessary information."""
+    is_valid: bool = True
+    issues: List[str] = []
+    suggestions: Dict[str, List[Tuple[str, float]]] = {}
+    requires_user_input: bool = False
+    user_queries: List[Dict] = []
+    validation_steps: List[ValidationStep] = []
 
     def add_validation_step(self, step_type: str, details: Dict):
         """Add a validation step with details."""
-        self.validation_steps.append({
-            "type": step_type,
-            "details": details,
-            "timestamp": datetime.now().isoformat()
-        })
+        self.validation_steps.append(ValidationStep(
+            type=step_type,
+            details=details,
+            timestamp=datetime.now().isoformat()
+        ))
 
     def add_issue(self, issue: str):
         self.issues.append(issue)
         self.is_valid = False
         logger.warning(f"Validation issue: {issue}")
 
-    def add_suggestion(self, item: str, suggestions: List[str]):
+    def add_suggestion(self, item: str, suggestions: List[Tuple[str, float]]):
         self.suggestions[item] = suggestions
         logger.info(f"Added suggestions for '{item}': {suggestions}")
 
-    def add_user_query(self, query_type: str, item: str, options: List[str]):
+    def add_user_query(self, query_type: str, item: str, suggestions: List[Tuple[str, float]]):
         self.requires_user_input = True
         self.user_queries.append({
             "type": query_type,
             "item": item,
-            "options": options
+            "suggestions": suggestions
         })
-        logger.info(f"Added user query - Type: {query_type}, Item: {item}, Options: {options}")
+        logger.info(f"Added user query - Type: {query_type}, Item: {item}, Suggestions: {suggestions}")
 
 class EnhancedValidator:
     def __init__(self, menu_items: Dict):
-        logger.info("Initializing EnhancedValidator")
         self.menu_items = menu_items
-        self.client = OpenAI(api_key=OPENAI_CONFIG["api_key"])
-        
         # Create O(1) lookup dictionaries
-        logger.info("Creating lookup dictionaries...")
         self.item_dict = self._create_item_dict()
         self.modification_dict = self._create_modification_dict()
-        logger.info(f"Created item dictionary with {len(self.item_dict)} items")
-        logger.info(f"Created modification dictionary with {len(self.modification_dict)} modifications")
-        
-        # Initialize embedding cache
-        self.embedding_cache = {}
 
     def _create_item_dict(self) -> Dict[str, Tuple[str, Dict]]:
         """Create O(1) lookup dictionary for menu items."""
@@ -70,38 +64,17 @@ class EnhancedValidator:
                 item_dict[item_name.lower()] = (category, details)
         return item_dict
 
-    def _create_modification_dict(self) -> Dict[str, Set[str]]:
+    def _create_modification_dict(self) -> Dict[str, Dict[str, List[str]]]:
         """Create O(1) lookup dictionary for modifications."""
         mod_dict = {}
         for category, items in self.menu_items["categories"].items():
             for item_name, details in items.items():
                 if details["modifications_allowed"]:
                     for mod in details["available_modifications"]:
-                        mod_dict[mod.lower()] = item_name
+                        if mod.lower() not in mod_dict:
+                            mod_dict[mod.lower()] = {"items": [], "original": mod}
+                        mod_dict[mod.lower()]["items"].append(item_name)
         return mod_dict
-
-    @lru_cache(maxsize=100)
-    def _get_embedding(self, text: str) -> np.ndarray:
-        """Get OpenAI embedding for text."""
-        try:
-            response = self.client.embeddings.create(
-                model="text-embedding-ada-002",
-                input=text
-            )
-            return np.array(response.data[0].embedding)
-        except Exception as e:
-            logger.error(f"Error getting embedding: {e}")
-            return None
-
-    def _calculate_embedding_similarity(self, text1: str, text2: str) -> float:
-        """Calculate cosine similarity between two text embeddings."""
-        emb1 = self._get_embedding(text1)
-        emb2 = self._get_embedding(text2)
-        
-        if emb1 is None or emb2 is None:
-            return 0.0
-            
-        return float(np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2)))
 
     def validate_item(self, item: OrderItem) -> ValidationResult:
         """Validate a single order item with multiple strategies."""
@@ -141,7 +114,7 @@ class EnhancedValidator:
                 "status": "success"
             })
             category, details = self.item_dict[matched_item.lower()]
-            result.add_suggestion(item.name, [matched_item])
+            result.add_suggestion(item.name, [(matched_item, score)])
             return self._validate_modifications(item, details, result)
 
         logger.info("✗ No good fuzzy matches found, proceeding to embedding similarity")
@@ -153,30 +126,30 @@ class EnhancedValidator:
 
         # Step 3: Embedding similarity
         logger.info("\n3. Performing embedding similarity search...")
-        similar_items = []
-        for menu_item in menu_items:
-            similarity = self._calculate_embedding_similarity(item.name, menu_item)
-            if similarity > 0.85:
-                similar_items.append((menu_item, similarity))
-                logger.info(f"Found similar item: {menu_item} (similarity: {similarity:.2f})")
+        similar_items = menu_embedding_service.find_similar_items(item.name)
 
         if similar_items:
-            similar_items.sort(key=lambda x: x[1], reverse=True)
             logger.info(f"✓ Success: Found {len(similar_items)} similar items using embeddings")
-            logger.info(f"Top matches: {similar_items[:3]}")
+            # Only log names and scores for top matches
+            top_matches = [(name, score) for name, score, _ in similar_items[:2]]
+            logger.info(f"Top matches: {top_matches}")
             result.add_validation_step("embedding_similarity", {
                 "item": item.name,
                 "status": "success",
-                "matches": similar_items[:3]
+                "matches": top_matches
             })
-            result.add_suggestion(
-                item.name,
-                [item[0] for item in similar_items[:3]]
-            )
+            suggestions = top_matches
+            result.add_suggestion(item.name, suggestions)
             result.add_user_query(
                 "item_replacement",
                 item.name,
-                [item[0] for item in similar_items[:3]]
+                suggestions
+            )
+            # Add removal option
+            result.add_user_query(
+                "item_removal",
+                item.name,
+                []
             )
         else:
             logger.warning(f"✗ No similar items found for '{item.name}' using any method")
@@ -204,9 +177,14 @@ class EnhancedValidator:
         if not item_details["modifications_allowed"]:
             logger.warning(f"❌ Modifications are not allowed for {item.name}")
             result.add_issue(f"Modifications are not allowed for {item.name}")
+            result.add_user_query(
+                "modification_removal_all",
+                item.name,
+                []
+            )
             return result
 
-        available_mods = set(mod.lower() for mod in item_details["available_modifications"])
+        available_mods = {mod.lower(): mod for mod in item_details["available_modifications"]}
         logger.info(f"Available modifications: {available_mods}")
         
         for mod in item.modifications:
@@ -224,7 +202,7 @@ class EnhancedValidator:
                 continue
 
             # Step 2: Fuzzy matching
-            matched_mod, score = find_best_match(mod, list(available_mods))
+            matched_mod, score = find_best_match(mod, list(available_mods.values()))
             if matched_mod and score > 0.8:
                 logger.info(f"✓ Success: Modification '{mod}' matched to '{matched_mod}' (fuzzy match, score: {score:.2f})")
                 result.add_validation_step("modification_fuzzy", {
@@ -233,22 +211,33 @@ class EnhancedValidator:
                     "score": score,
                     "status": "success"
                 })
-                result.add_suggestion(mod, [matched_mod])
+                result.add_suggestion(mod, [(matched_mod, score)])
                 continue
 
-            # Step 3: Ask user
-            logger.warning(f"❌ Invalid modification '{mod}' for {item.name}")
-            result.add_validation_step("modification_validation", {
-                "modification": mod,
-                "status": "failed",
-                "available_options": list(available_mods)
-            })
-            result.add_issue(f"Invalid modification '{mod}' for {item.name}")
-            result.add_user_query(
-                "modification_removal",
-                mod,
-                list(available_mods)
-            )
+            # Step 3: Embedding similarity
+            logger.info("\n3. Checking embedding similarity for modifications...")
+            similar_mods = menu_embedding_service.find_similar_modifications(mod, item.name)
+            
+            if similar_mods:
+                logger.info(f"Found similar modifications: {similar_mods}")
+                result.add_suggestion(mod, similar_mods)
+                result.add_user_query(
+                    "modification_replacement",
+                    mod,
+                    similar_mods
+                )
+                result.add_issue(
+                    f"Modification '{mod}' not available for {item.name}. "
+                    "Would you like to replace it with a similar modification or remove it?"
+                )
+            else:
+                logger.warning(f"❌ No similar modifications found for '{mod}'")
+                result.add_issue(f"No similar modifications found for '{mod}'. Would you like to remove it?")
+                result.add_user_query(
+                    "modification_removal",
+                    mod,
+                    []
+                )
 
         return result
 
@@ -278,15 +267,15 @@ class EnhancedValidator:
         logger.info(f"Requires user input: {result.requires_user_input}")
 
         # Update context with validation results
-        context_manager.update_current_context(
-            validation_issue={
-                "issues": result.issues,
-                "suggestions": result.suggestions,
-                "requires_user_input": result.requires_user_input,
-                "user_queries": result.user_queries,
-                "validation_steps": result.validation_steps
-            }
-        )
+        for issue in result.issues:
+            langchain_context.update_order_memory(
+                validation_issue={"message": issue}
+            )
+        
+        for item, suggestions in result.suggestions.items():
+            langchain_context.update_order_memory(
+                suggestion={"item": item, "suggestions": suggestions}
+            )
 
         return result
 
@@ -302,7 +291,7 @@ class EnhancedValidator:
                     result.add_user_query(
                         "quantity_adjustment",
                         item.name,
-                        [str(inventory[item.name])]
+                        [(str(inventory[item.name]), 1.0)]
                     )
 
 # Initialize validator at module level
