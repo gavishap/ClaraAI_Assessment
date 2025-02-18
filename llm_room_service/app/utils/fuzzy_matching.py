@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from difflib import SequenceMatcher
 import re
 
@@ -14,26 +14,24 @@ def normalize_text(text: str) -> str:
 
 def calculate_similarity(str1: str, str2: str) -> float:
     """Calculate string similarity using SequenceMatcher."""
-    str1 = normalize_text(str1)
-    str2 = normalize_text(str2)
-    return SequenceMatcher(None, str1, str2).ratio()
+    return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
 
-def find_best_match(query: str, candidates: List[str], threshold: float = 0.8) -> Tuple[str, float]:
+def find_best_match(query: str, candidates: List[str]) -> Tuple[Optional[str], float]:
     """Find the best matching string from a list of candidates."""
+    if not candidates:
+        return None, 0.0
+        
     best_match = None
     best_score = 0.0
     
-    query = normalize_text(query)
-    
+    query = query.lower()
     for candidate in candidates:
         score = calculate_similarity(query, candidate)
         if score > best_score:
-            best_score = score
             best_match = candidate
-    
-    if best_score >= threshold:
-        return best_match, best_score
-    return None, best_score
+            best_score = score
+            
+    return best_match, best_score
 
 def find_matching_modifications(text: str, available_mods: List[str], threshold: float = 0.8) -> List[str]:
     """Find matching modifications in text."""

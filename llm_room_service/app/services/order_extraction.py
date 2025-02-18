@@ -2,22 +2,12 @@ from typing import Optional, Dict, List
 import os
 import json
 from openai import OpenAI
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from loguru import logger
 
-from ..models import Order, OrderItem, OrderIntent
+from ..models import Order, OrderItem, OrderIntent, OrderSchema, OrderItemSchema
 from ..config import OPENAI_CONFIG, MENU_ITEMS
 from ..utils.fuzzy_matching import find_best_match
-
-# Step 1: Define our Pydantic models for structured output
-class OrderItemSchema(BaseModel):
-    name: str
-    quantity: int
-    modifications: List[str]
-
-class OrderSchema(BaseModel):
-    room_number: Optional[int]
-    items: List[OrderItemSchema]
 
 class OrderExtractor:
     def __init__(self):
@@ -28,6 +18,8 @@ class OrderExtractor:
             
             # Create menu context for the model
             self.menu_context = self._create_menu_context()
+            # Store last raw output for validation
+            self.last_raw_output = None
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")
             raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
@@ -145,6 +137,7 @@ Remember:
 
             # Get the response and parse it
             response_text = completion.choices[0].message.content
+            self.last_raw_output = response_text  # Store the raw output
             order_data = OrderSchema.model_validate_json(response_text)
 
             # Save outputs to file for debugging

@@ -3,6 +3,18 @@ from pydantic import BaseModel, Field, validator
 from enum import Enum
 import uuid
 
+# Add the schema classes before the other model definitions
+class OrderItemSchema(BaseModel):
+    """Schema for validating LLM output for order items."""
+    name: str
+    quantity: int
+    modifications: List[str]
+
+class OrderSchema(BaseModel):
+    """Schema for validating LLM output for orders."""
+    room_number: Optional[int]
+    items: List[OrderItemSchema]
+
 # Define all possible intents that can be classified
 class OrderIntent(str, Enum):
     NEW_ORDER = "new_order"  # User wants to place a new order
