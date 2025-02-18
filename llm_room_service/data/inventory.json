@@ -1,0 +1,23 @@
+{
+    "Main": {
+        "Club Sandwich": 15,
+        "Caesar Salad": 20,
+        "Margherita Pizza": 12,
+        "Beef Burger": 15
+    },
+    "Beverage": {
+        "Still Water": 100,
+        "Sparkling Water": 50,
+        "Fresh Orange Juice": 25,
+        "House Red Wine": 30
+    },
+    "Dessert": {
+        "Apple Pie": 10,
+        "Chocolate Mousse": 15,
+        "Fresh Fruit Plate": 12
+    },
+    "Side": {
+        "French Fries": 40,
+        "Garden Salad": 25
+    }
+} 

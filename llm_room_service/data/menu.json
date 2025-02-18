@@ -1,0 +1,116 @@
+{
+    "categories": {
+        "Main": {
+            "Club Sandwich": {
+                "price": 15.00,
+                "description": "Triple-decker sandwich with turkey, crispy bacon, lettuce, tomato, and mayonnaise",
+                "modifications_allowed": true,
+                "available_modifications": ["extra bacon", "no bacon", "toasted", "untoasted", "no tomato", "extra mayo"],
+                "allergens": ["gluten", "eggs", "dairy"],
+                "preparation_time": 15
+            },
+            "Caesar Salad": {
+                "price": 12.00,
+                "description": "Crisp romaine lettuce, parmesan cheese, croutons, and classic Caesar dressing",
+                "modifications_allowed": true,
+                "available_modifications": ["add chicken", "no croutons", "dressing on side", "add anchovies"],
+                "allergens": ["gluten", "eggs", "dairy", "fish"],
+                "preparation_time": 10
+            },
+            "Margherita Pizza": {
+                "price": 16.00,
+                "description": "Fresh mozzarella, tomato sauce, and basil on our house-made crust",
+                "modifications_allowed": true,
+                "available_modifications": ["extra cheese", "well done", "gluten-free crust", "add pepperoni"],
+                "allergens": ["gluten", "dairy"],
+                "preparation_time": 20
+            },
+            "Beef Burger": {
+                "price": 18.00,
+                "description": "8oz Angus beef patty with lettuce, tomato, onion, and special sauce",
+                "modifications_allowed": true,
+                "available_modifications": ["add cheese", "no onion", "well done", "medium rare", "add bacon"],
+                "allergens": ["gluten", "eggs", "dairy"],
+                "preparation_time": 18
+            }
+        },
+        "Beverage": {
+            "Still Water": {
+                "price": 4.00,
+                "description": "500ml bottle of premium spring water",
+                "modifications_allowed": false,
+                "available_modifications": [],
+                "allergens": [],
+                "preparation_time": 2
+            },
+            "Sparkling Water": {
+                "price": 4.00,
+                "description": "500ml bottle of premium sparkling mineral water",
+                "modifications_allowed": false,
+                "available_modifications": [],
+                "allergens": [],
+                "preparation_time": 2
+            },
+            "Fresh Orange Juice": {
+                "price": 6.00,
+                "description": "Freshly squeezed orange juice",
+                "modifications_allowed": true,
+                "available_modifications": ["no pulp", "extra pulp"],
+                "allergens": [],
+                "preparation_time": 5
+            },
+            "House Red Wine": {
+                "price": 12.00,
+                "description": "Glass of house Cabernet Sauvignon",
+                "modifications_allowed": false,
+                "available_modifications": [],
+                "allergens": ["sulfites"],
+                "preparation_time": 3
+            }
+        },
+        "Dessert": {
+            "Apple Pie": {
+                "price": 8.00,
+                "description": "Warm apple pie with cinnamon and buttery crust",
+                "modifications_allowed": true,
+                "available_modifications": ["add ice cream", "heated", "not heated"],
+                "allergens": ["gluten", "dairy"],
+                "preparation_time": 8
+            },
+            "Chocolate Mousse": {
+                "price": 9.00,
+                "description": "Rich dark chocolate mousse with fresh whipped cream",
+                "modifications_allowed": true,
+                "available_modifications": ["extra whipped cream", "no whipped cream", "add berries"],
+                "allergens": ["dairy", "eggs"],
+                "preparation_time": 5
+            },
+            "Fresh Fruit Plate": {
+                "price": 7.00,
+                "description": "Selection of seasonal fresh fruits",
+                "modifications_allowed": true,
+                "available_modifications": ["no melons", "extra berries"],
+                "allergens": [],
+                "preparation_time": 7
+            }
+        },
+        "Side": {
+            "French Fries": {
+                "price": 6.00,
+                "description": "Crispy golden fries with sea salt",
+                "modifications_allowed": true,
+                "available_modifications": ["extra crispy", "add truffle oil", "add parmesan"],
+                "allergens": [],
+                "preparation_time": 10
+            },
+            "Garden Salad": {
+                "price": 7.00,
+                "description": "Mixed greens, cucumber, tomato with house vinaigrette",
+                "modifications_allowed": true,
+                "available_modifications": ["no tomato", "dressing on side", "add avocado"],
+                "allergens": [],
+                "preparation_time": 5
+            }
+        }
+    }
+}
